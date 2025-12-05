@@ -85,7 +85,7 @@ def run_analytics(strategies):
             elif i > 0 and i % 2 == 0:
                 cell.set_facecolor('#f1f2f6')
         plt.title("Performance Summary", pad=20)
-        plt.savefig(os.path.join(Config.TBL_FOLDER, 'WHEEL_summary_table.png'), bbox_inches='tight')
+        plt.savefig(os.path.join(Config.TBL_FOLDER, 'summary_table.png'), bbox_inches='tight')
         plt.close()
 
     # 3. 净值曲线 (Equity Curve)
@@ -100,7 +100,7 @@ def run_analytics(strategies):
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda x, p: f'${x:,.0f}'))
-        plt.savefig(os.path.join(Config.PIC_FOLDER, 'WHEEL_equity_curve.png'))
+        plt.savefig(os.path.join(Config.PIC_FOLDER, 'equity_curve.png'))
         plt.close()
 
     # 4. 回撤曲线 (Drawdown Curve) - 【新增】
@@ -119,7 +119,7 @@ def run_analytics(strategies):
         plt.ylabel('Drawdown (%)')
         # Y轴转百分比
         plt.gca().yaxis.set_major_formatter(FuncFormatter(lambda y, _: '{:.0%}'.format(y)))
-        plt.savefig(os.path.join(Config.PIC_FOLDER, 'WHEEL_drawdown_comparison.png'))
+        plt.savefig(os.path.join(Config.PIC_FOLDER, 'drawdown_comparison.png'))
         plt.close()
         
     print(f"✅ Reports saved to {Config.PIC_FOLDER} and {Config.TBL_FOLDER}")

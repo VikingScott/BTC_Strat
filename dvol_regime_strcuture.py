@@ -76,26 +76,52 @@ def process_chunk(chunk, spot_series, dvol_series):
     return valid_rows[['Date', 'OptionType', 'Moneyness', 'ImpliedVolatility', 'Spread_Pct', 'DVOL_Level']]
 
 def analyze_regime(df_regime, regime_name):
-    """辅助函数：分析特定 DVOL 区间的参数"""
+    """
+    优化后的分析函数：更严谨的 ATM 计算
+    """
     print(f"\n --- {regime_name} ---")
-    try:
-        # A. Skew
-        iv_put_90 = df_regime[(df_regime['Moneyness'] >= 0.88) & (df_regime['Moneyness'] <= 0.92) & (df_regime['OptionType']=='P')]['ImpliedVolatility'].mean()
-        iv_atm = df_regime[(df_regime['Moneyness'] >= 0.98) & (df_regime['Moneyness'] <= 1.02)]['ImpliedVolatility'].mean()
-        skew_val = iv_put_90 - iv_atm
-        print(f"   Skew Bias (90% Put - ATM): {skew_val:.4f}")
-        
-        # B. Spread
-        spread_atm = df_regime[(df_regime['Moneyness'] >= 0.98) & (df_regime['Moneyness'] <= 1.02)]['Spread_Pct'].mean()
-        spread_otm = df_regime[(df_regime['Moneyness'] >= 0.88) & (df_regime['Moneyness'] <= 0.92) & (df_regime['OptionType']=='P')]['Spread_Pct'].mean()
-        print(f"   ATM Spread:     {spread_atm:.2%}")
-        print(f"   OTM Put Spread: {spread_otm:.2%}")
-        
-        return skew_val, spread_atm, spread_otm
-    except:
-        print("   (数据不足)")
+    if df_regime.empty:
+        print("   (无数据)")
         return None
 
+    try:
+        # 1. 计算 ATM IV (98%-102%)
+        # 优化：分别计算 Call 和 Put 的 ATM，然后取平均，或者只用 Put
+        atm_mask = (df_regime['Moneyness'] >= 0.98) & (df_regime['Moneyness'] <= 1.02)
+        iv_atm_call = df_regime[atm_mask & (df_regime['OptionType'] == 'C')]['ImpliedVolatility'].mean()
+        iv_atm_put  = df_regime[atm_mask & (df_regime['OptionType'] == 'P')]['ImpliedVolatility'].mean()
+        
+        # 如果某一边缺失，就用另一边，否则取平均
+        if pd.isna(iv_atm_call): iv_atm = iv_atm_put
+        elif pd.isna(iv_atm_put): iv_atm = iv_atm_call
+        else: iv_atm = (iv_atm_call + iv_atm_put) / 2.0
+
+        # 2. 计算 90% OTM Put IV (Deep OTM)
+        otm_90_mask = (df_regime['Moneyness'] >= 0.88) & (df_regime['Moneyness'] <= 0.92)
+        iv_put_90 = df_regime[otm_90_mask & (df_regime['OptionType'] == 'P')]['ImpliedVolatility'].mean()
+
+        # 3. 计算 Skew (偏度)
+        skew_val = iv_put_90 - iv_atm
+        
+        print(f"   Samples: {len(df_regime)}")
+        print(f"   ATM IV:  {iv_atm:.2%}")
+        print(f"   90% Put IV: {iv_put_90:.2%}")
+        print(f"   => Skew Bias (90% Put - ATM): {skew_val:.4f}")
+        
+        # 4. Spread 分析 (交易成本)
+        spread_atm = df_regime[atm_mask]['Spread_Pct'].mean()
+        spread_otm = df_regime[otm_90_mask & (df_regime['OptionType'] == 'P')]['Spread_Pct'].mean()
+        
+        print(f"   Transaction Costs (Spread):")
+        print(f"     ATM Spread:     {spread_atm:.2%}")
+        print(f"     OTM Put Spread: {spread_otm:.2%}")
+        
+        return skew_val, spread_atm, spread_otm
+
+    except Exception as e:
+        print(f"   (计算出错: {e})")
+        return None
+    
 def calibrate_full_model():
     print(f"🚀 开始分层校准 (Stratified Calibration)...")
     
