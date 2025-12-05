@@ -43,7 +43,8 @@ def load_dvol_data():
 def process_chunk(chunk, spot_series, dvol_series):
     """处理单个数据块，增加 DVOL 匹配"""
     chunk['Date'] = pd.to_datetime(chunk['Date']).dt.normalize()
-    
+    valid_liquidity = (chunk['BidSize'] > 0) & (chunk['AskSize'] > 0)
+    chunk = chunk[valid_liquidity].copy()
     # 1. 匹配 Spot
     if spot_series is not None:
         chunk['Spot'] = chunk['Date'].map(spot_series)
@@ -76,7 +77,7 @@ def process_chunk(chunk, spot_series, dvol_series):
 
 def analyze_regime(df_regime, regime_name):
     """辅助函数：分析特定 DVOL 区间的参数"""
-    print(f"\n📊 --- {regime_name} ---")
+    print(f"\n --- {regime_name} ---")
     try:
         # A. Skew
         iv_put_90 = df_regime[(df_regime['Moneyness'] >= 0.88) & (df_regime['Moneyness'] <= 0.92) & (df_regime['OptionType']=='P')]['ImpliedVolatility'].mean()
@@ -135,7 +136,7 @@ def calibrate_full_model():
         if not df_high.empty: analyze_regime(df_high, "High Vol Regime (DVOL >= 70%)")
         
         # 全局分析 (Benchmark)
-        analyze_regime(df_all, "Global Average (全局均值)")
+        analyze_regime(df_all, "Global Average")
 
     except Exception as e:
         print(f"❌ 运行出错: {e}")
