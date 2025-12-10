@@ -1,0 +1,5 @@
+Strategy,Full Sharpe,Low Sharpe,Low Ann.Ret,Normal Sharpe,Normal Ann.Ret,High Sharpe,High Ann.Ret
+SmartWheel(W180),0.82,1.02,93.4%,1.52,124.1%,1.16,123.2%
+SmartWheel(W90),0.66,1.19,64.1%,1.16,110.2%,0.93,93.9%
+Buy & Hold,0.81,0.80,143.4%,1.26,179.5%,1.29,163.9%
+SmartWheel(W365),0.66,0.97,72.9%,1.29,104.0%,0.91,104.2%

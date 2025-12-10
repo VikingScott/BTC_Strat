@@ -1,0 +1,4 @@
+Strategy,Total Return,CAGR,Sharpe,Sortino,Max Drawdown,Calmar,VaR 95%,CVaR 95%,Skewness,Kurtosis,Worst Day
+CSP (Delta -0.3),668.6%,34.5%,0.89,0.74,40.3%,0.86,-1.4%,-3.5%,-5.52,162.17,-36.1%
+Wheel (Delta 0.3),790.4%,37.4%,0.80,0.72,42.7%,0.87,-2.6%,-4.5%,-2.40,65.32,-36.1%
+Buy & Hold,2208.3%,57.8%,0.81,0.84,76.7%,0.75,-4.9%,-7.4%,-0.30,10.86,-39.1%

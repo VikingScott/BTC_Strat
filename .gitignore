@@ -33,11 +33,8 @@ __pycache__/
 
 # 忽略特定输出文件夹下的所有内容，但保留文件夹本身
 # (前提是文件夹里有一个 .gitkeep 文件)
-pic/*
 !pic/.gitkeep
 
-tbl/*
 !tbl/.gitkeep
 
-data/*
 !data/.gitkeep
