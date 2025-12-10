@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from scipy.stats import skew, kurtosis
 
 class PerformanceMetrics:
     """
@@ -55,3 +56,38 @@ class PerformanceMetrics:
         rolling_mean = returns.rolling(window).mean()
         rolling_std = returns.rolling(window).std()
         return (rolling_mean / rolling_std * np.sqrt(252)).fillna(0)
+    
+    @staticmethod
+    def get_tail_risk_metrics(series):
+        """
+        计算尾部风险指标：偏度、峰度、VaR、CVaR
+        """
+        returns = series.pct_change().dropna()
+        if len(returns) < 2: return {}
+
+        # 1. 偏度与峰度
+        sk = skew(returns)
+        kt = kurtosis(returns)
+
+        # 2. Value at Risk (VaR) - 历史模拟法
+        # 95% 置信度: 意味着只有 5% 的日子亏损会超过这个数
+        var_95 = np.percentile(returns, 5) 
+        var_99 = np.percentile(returns, 1)
+
+        # 3. Conditional VaR (Expected Shortfall)
+        # 在最倒霉的那 5% 的日子里，平均亏损是多少
+        cvar_95 = returns[returns <= var_95].mean()
+        cvar_99 = returns[returns <= var_99].mean()
+
+        # 4. 最惨的 5 天 (具体的亏损比例)
+        worst_5 = returns.nsmallest(5).values
+
+        return {
+            'Skewness': sk,
+            'Kurtosis': kt,
+            'VaR 95%': var_95,
+            'VaR 99%': var_99,
+            'CVaR 95%': cvar_95,
+            'CVaR 99%': cvar_99,
+            'Worst Day': worst_5[0]
+        }
