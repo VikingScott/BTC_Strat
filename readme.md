@@ -1,5 +1,5 @@
 
-# 🦎 Project Chameleon: Institutional Bitcoin Options Backtest Engine
+# 🦎 Project Chameleon: Bitcoin Options Backtest Engine
 
 **A regime-based, microstructure-aware backtesting engine for Bitcoin options strategies (CSP, Wheel, Smart Wheel).**
 
@@ -110,4 +110,3 @@ Open `src/strategy_smart_wheel.py` or `src/regime.py` to tweak how `Low`, `Norma
 
 <!-- end list -->
 
-````
