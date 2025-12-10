@@ -1,5 +1,4 @@
 
-````markdown
 # 🦎 Project Chameleon: Institutional Bitcoin Options Backtest Engine
 
 **A regime-based, microstructure-aware backtesting engine for Bitcoin options strategies (CSP, Wheel, Smart Wheel).**
