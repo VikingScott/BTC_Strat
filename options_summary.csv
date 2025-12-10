@@ -1,0 +1,28 @@
+,Data Type,Non-Null Count,Null Count,Unique Values,Example (First Row)
+Symbol,object,513094,0,10340,IBIT|20250417|5.00C
+Moneyness,float64,513094,0,40073,0.895746455
+Bid,float64,490711,22383,1742,42.9
+BidSize,float64,490711,22383,1434,31.0
+Midpoint,float64,513094,0,5119,42.95
+Ask,float64,513094,0,1753,43.0
+AskSize,int64,513094,0,1639,1
+Last,float64,273330,239764,5446,
+Change,float64,0,513094,0,
+PercentChange,float64,0,513094,0,
+Volume,float64,274402,238692,8239,
+OpenInterest,float64,427666,85428,21338,
+VolumeOpenInterestRatio,float64,263577,249517,125458,
+ImpliedVolatility,float64,513094,0,445140,0.0
+Date,object,513094,0,215,2025-04-16
+Delta,float64,513094,0,469730,0.0
+Open,float64,274399,238695,5454,
+High,float64,274402,238692,5506,
+Low,float64,274402,238692,5463,
+Vega,float64,513094,0,476111,0.0
+Gamma,float64,513094,0,475914,0.0
+Theta,float64,513094,0,476058,0.0
+TheoreticalValue,float64,513094,0,402805,0.0
+OI Change,float64,0,513094,0,
+Rho,float64,508962,4132,468160,0.0
+Strike,float64,513094,0,153,5.0
+OptionType,object,513094,0,2,C

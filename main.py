@@ -37,16 +37,16 @@ def main():
     # 这里可以放多个策略，目前先跑基准
     strategies = [
     BuyAndHoldStrategy(initial_capital=100_000),
-    # CashSecuredPutStrategy(initial_capital=100_000, target_delta=-0.30),
-    # WheelStrategy(initial_capital=100_000, target_delta=0.30),
+    CashSecuredPutStrategy(initial_capital=100_000, target_delta=-0.30),
+    WheelStrategy(initial_capital=100_000, target_delta=0.30),
 
-    SmartWheelStrategy(initial_capital=100_000, regime_window=90),
+    #SmartWheelStrategy(initial_capital=100_000, regime_window=90),
     
     # 选手2：中线平衡型 (180天窗口)
     SmartWheelStrategy(initial_capital=100_000, regime_window=180),
     
     # 选手3：长线迟钝型 (365天窗口) - 可能在趋势反转时反应慢
-    SmartWheelStrategy(initial_capital=100_000, regime_window=365),
+    #SmartWheelStrategy(initial_capital=100_000, regime_window=365),
     ]
 
     # 4. 开火！
