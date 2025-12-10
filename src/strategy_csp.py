@@ -70,10 +70,12 @@ class CashSecuredPutStrategy:
                 if i + self.target_dte < len(df):
                     # A. 计算行权价 (根据 Delta)
                     T_year = self.target_dte / 365.0
-                    K = OptionPricing.find_strike_for_delta(S, T_year, r, sigma, self.target_delta, 'put')
+                    # ✅ 修复: 调用新接口 get_strike_by_delta 并传入 current_date
+                    K = OptionPricing.get_strike_by_delta(current_date, S, T_year, r, sigma, self.target_delta, 'put')
                     
                     # B. 计算权利金 (Premium)
-                    premium_per_share = OptionPricing.bsm_price(S, K, T_year, r, sigma, 'put')
+                    # ✅ 修复: 调用新接口 get_price 并传入 current_date
+                    premium_per_share = OptionPricing.get_price(current_date, S, K, T_year, r, sigma, 'put')
                     
                     # C. 确定张数 (100% 现金担保)
                     # 每一份合约需要 K 的现金担保。
@@ -105,7 +107,9 @@ class CashSecuredPutStrategy:
                 T_left = days_left / 365.0
                 
                 # 当前期权市场价 (这是我们欠市场的钱，如果是以平仓计算的话)
-                current_option_price = OptionPricing.bsm_price(S, K, T_left, r, sigma, 'put')
+                # ⚠️ 关键修复: 这里之前调用的是 bsm_price，现已更新为 get_price
+                current_option_price = OptionPricing.get_price(current_date, S, K, T_left, r, sigma, 'put')
+                
                 liability = current_option_price * contracts
                 
                 # 净值 = 现金 (含已收权利金) - 负债 (买回期权的成本)

@@ -10,10 +10,12 @@ if __package__ in (None, ""):
     repo_root = Path(__file__).resolve().parent.parent
     sys.path.append(str(repo_root))
     from src.config import Config
+    from src.data_loader import load_market_data  # ✅ 新增：引入数据加载器
     from src.metrics import PerformanceMetrics
     from src.visualizer import Visualizer
 else:
     from .config import Config
+    from .data_loader import load_market_data     # ✅ 新增
     from .metrics import PerformanceMetrics
     from .visualizer import Visualizer
 
@@ -21,19 +23,15 @@ else:
 # 工具函数
 # ===========================
 def format_performance_df(df):
-    """
-    将数值型的 DataFrame 格式化为易读的字符串型 DataFrame。
-    """
+    """格式化数值为易读字符串"""
     formatted_df = df.copy()
     
-    # 百分比格式化列
     pct_cols = ['Total Return', 'CAGR', 'Max Drawdown', 'VaR 95%', 'CVaR 95%', 'Worst Day']
     for col in pct_cols:
         if col in formatted_df.columns:
             formatted_df[col] = pd.to_numeric(formatted_df[col], errors='coerce')
             formatted_df[col] = formatted_df[col].apply(lambda x: f"{x:.1%}" if pd.notnull(x) else "N/A")
 
-    # 小数格式化列
     float_cols = ['Sharpe', 'Sortino', 'Calmar', 'Skewness', 'Kurtosis']
     for col in float_cols:
         if col in formatted_df.columns:
@@ -43,19 +41,12 @@ def format_performance_df(df):
     return formatted_df
 
 def transpose_for_display(df, index_col='Strategy', new_index_name='Metric'):
-    """
-    将 DataFrame 转置：索引列变为表头，列变为行。
-    例如：从 (策略 x 指标) 变为 (指标 x 策略)
-    """
+    """表格转置函数"""
     if df.empty: return df
     if index_col in df.columns:
-        # 1. 设置索引
         temp_df = df.set_index(index_col)
-        # 2. 转置
         transposed_df = temp_df.T
-        # 3. 重置索引，把原来的列名变成第一列
         transposed_df = transposed_df.reset_index()
-        # 4. 重命名第一列
         transposed_df.rename(columns={'index': new_index_name}, inplace=True)
         return transposed_df
     return df
@@ -63,28 +54,51 @@ def transpose_for_display(df, index_col='Strategy', new_index_name='Metric'):
 # ===========================
 # 报告生成逻辑
 # ===========================
-def generate_regime_report(master_df, viz: Visualizer, output_dir='tbl'):
-    """生成分 Regime 的报告 (CSV + 转置后的图片)"""
+def generate_regime_report(master_df, market_data, viz: Visualizer, output_dir='tbl'):
+    """
+    生成分 Regime 报告。
+    ✅ 修改：使用 market_data 中的权威 regime_signal，而不是策略结果里的
+    """
     print("   📊 Generating Regime Performance Analysis...")
-    if 'regime_signal' not in master_df.columns:
-        print("   ⚠️ Warning: 'regime_signal' missing. Skipping.")
+    
+    # 确保 market_data 和 master_df 在时间上对齐
+    # 我们以 master_df 的时间索引为准
+    common_idx = master_df.index.intersection(market_data.index)
+    if common_idx.empty:
+        print("   ⚠️ Warning: No overlapping dates between strategies and market data.")
         return
 
+    # 提取对齐后的数据
+    aligned_strategies = master_df.loc[common_idx]
+    aligned_regime = market_data.loc[common_idx, 'regime_signal']
+    aligned_r = market_data.loc[common_idx, 'r']
+
     report_data = []
-    strategy_cols = [c for c in master_df.columns if c not in ['regime_signal', 'date']]
+    # 排除非策略列 (如果有的话)
+    strategy_cols = [c for c in aligned_strategies.columns if c not in ['regime_signal', 'date']]
 
     for strat in strategy_cols:
-        full_sharpe = PerformanceMetrics.get_sharpe_ratio(master_df[strat])
+        # 1. 全周期 Sharpe (使用动态无风险利率)
+        full_sharpe = PerformanceMetrics.get_sharpe_ratio(
+            aligned_strategies[strat], 
+            risk_free_rate=aligned_r
+        )
         
         row = {'Strategy': strat, 'Full Sharpe': full_sharpe}
 
+        # 2. 分 Regime 表现
         for reg in ['Low', 'Normal', 'High']:
-            mask = master_df['regime_signal'] == reg
-            subset = master_df.loc[mask, strat]
+            mask = aligned_regime == reg
+            subset_strat = aligned_strategies.loc[mask, strat]
+            subset_r = aligned_r.loc[mask]
             
-            if len(subset) > 30:
-                reg_sharpe = PerformanceMetrics.get_sharpe_ratio(subset)
-                reg_ret = subset.pct_change().mean() * 252 
+            if len(subset_strat) > 30:
+                reg_sharpe = PerformanceMetrics.get_sharpe_ratio(
+                    subset_strat, 
+                    risk_free_rate=subset_r
+                )
+                # 简单年化回报
+                reg_ret = subset_strat.pct_change().mean() * 252 
             else:
                 reg_sharpe = np.nan
                 reg_ret = np.nan
@@ -94,11 +108,10 @@ def generate_regime_report(master_df, viz: Visualizer, output_dir='tbl'):
         
         report_data.append(row)
 
-    # 1. 保存原始 CSV (保持 策略=行，方便机器读取)
+    # 保存与可视化
     os.makedirs(output_dir, exist_ok=True)
     raw_regime_df = pd.DataFrame(report_data)
     
-    # 格式化
     fmt_regime_df = raw_regime_df.copy()
     for col in fmt_regime_df.columns:
         if 'Sharpe' in col:
@@ -110,8 +123,7 @@ def generate_regime_report(master_df, viz: Visualizer, output_dir='tbl'):
     fmt_regime_df.to_csv(csv_path, index=False)
     print(f"   ✅ Regime CSV Saved: {csv_path}")
 
-    # 2. 保存为图片 (转置！策略=列，指标=行)
-    # 转置逻辑：Strategy列变成表头
+    # 转置绘图
     img_df = transpose_for_display(fmt_regime_df, index_col='Strategy')
     viz.save_dataframe_as_image(img_df, 'regime_performance.png')
 
@@ -119,7 +131,21 @@ def generate_regime_report(master_df, viz: Visualizer, output_dir='tbl'):
 def generate_reports():
     print("\n📊 [Reporting] Aggregating results & generating reports...")
     
-    # 1. 扫描与聚合数据
+    # ------------------------------------------------------
+    # 1. ✅ 新增：加载全量宏观数据 (Market Data Context)
+    # ------------------------------------------------------
+    try:
+        # load_market_data 会返回包含 date, r, regime_signal, price 的 DataFrame
+        market_data = load_market_data()
+        market_data.set_index('date', inplace=True)
+        print(f"   🌍 Market Context Loaded: {len(market_data)} days")
+    except Exception as e:
+        print(f"   ❌ Failed to load market data: {e}")
+        return
+
+    # ------------------------------------------------------
+    # 2. 扫描与聚合策略结果
+    # ------------------------------------------------------
     results_dir = os.path.join(Config.DATA_FOLDER, 'backtest_results')
     all_files = glob.glob(os.path.join(results_dir, "*_details.csv"))
     if not all_files:
@@ -127,12 +153,12 @@ def generate_reports():
         return
 
     master_df = pd.DataFrame()
-    regime_series = None
     
     for f in all_files:
         df = pd.read_csv(f, parse_dates=['date'])
         if df.empty: continue
         df.set_index('date', inplace=True)
+        
         strategy_name = df['strategy'].iloc[0]
         series = df['portfolio_value']
         series.name = strategy_name
@@ -142,30 +168,36 @@ def generate_reports():
         else:
             master_df = master_df.join(series, how='outer')
             
-        if regime_series is None and 'regime_signal' in df.columns:
-            regime_series = df['regime_signal']
-            
     master_df.sort_index(inplace=True)
-    master_df.fillna(method='ffill', inplace=True)
-    if regime_series is not None:
-        master_df['regime_signal'] = regime_series.reindex(master_df.index).fillna(method='ffill')
+    master_df.ffill(inplace=True)
     
+    # ✅ 关键步骤：对齐 Market Data 和 Strategy Data
+    # 我们只关心策略存续期间的数据
+    common_index = master_df.index.intersection(market_data.index)
+    master_df = master_df.loc[common_index]
+    market_subset = market_data.loc[common_index] # 对应的宏观数据片段
+
     viz = Visualizer(output_dir='pic')
 
-    # 2. 计算汇总指标
+    # ------------------------------------------------------
+    # 3. 计算汇总指标 (使用真实利率)
+    # ------------------------------------------------------
     raw_stats = []
-    strategy_cols = [c for c in master_df.columns if c != 'regime_signal']
     
-    for strat_name in strategy_cols:
+    for strat_name in master_df.columns:
         s = master_df[strat_name]
+        # 获取对应的无风险利率序列
+        r_series = market_subset['r']
+        
         tail_metrics = PerformanceMetrics.get_tail_risk_metrics(s)
         
         stats_row = {
             'Strategy': strat_name,
             'Total Return': (s.iloc[-1]/s.iloc[0] - 1),
             'CAGR': PerformanceMetrics.get_cagr(s),
-            'Sharpe': PerformanceMetrics.get_sharpe_ratio(s),
-            'Sortino': PerformanceMetrics.get_sortino_ratio(s),
+            # ✅ 修改：传入真实利率序列
+            'Sharpe': PerformanceMetrics.get_sharpe_ratio(s, risk_free_rate=r_series),
+            'Sortino': PerformanceMetrics.get_sortino_ratio(s, risk_free_rate=r_series),
             'Max Drawdown': PerformanceMetrics.get_max_drawdown(s),
             'Calmar': PerformanceMetrics.get_calmar_ratio(s),
             'VaR 95%': tail_metrics.get('VaR 95%'),
@@ -179,28 +211,30 @@ def generate_reports():
     raw_stats_df = pd.DataFrame(raw_stats).set_index('Strategy')
     formatted_stats_df = format_performance_df(raw_stats_df.reset_index())
 
-    # 3. 保存与可视化
+    # ------------------------------------------------------
+    # 4. 保存与可视化
+    # ------------------------------------------------------
     os.makedirs('tbl', exist_ok=True)
     
-    # A. 保存 CSV (保持原样：行=策略)
+    # A. 保存 CSV
     tbl_path = os.path.join('tbl', 'performance_summary.csv')
     formatted_stats_df.to_csv(tbl_path, index=False)
     print(f"   📝 Summary CSV Saved: {tbl_path}")
     
-    # B. 保存图片 (转置！行=指标，列=策略)
-    # 这样生成的图片表格，每列是一个策略，便于横向对比
+    # B. 保存图片 (转置)
     img_df = transpose_for_display(formatted_stats_df, index_col='Strategy')
     viz.save_dataframe_as_image(img_df, 'performance_summary.png')
 
-    # C. 其他报告
-    generate_regime_report(master_df, viz, output_dir='tbl')
+    # C. Regime 报告 (传入全量 market_data)
+    generate_regime_report(master_df, market_data, viz, output_dir='tbl')
 
-    viz_df = master_df[strategy_cols].copy()
-    viz.plot_equity_comparison(viz_df)
-    viz.plot_drawdown_comparison(viz_df)
-    viz.plot_rolling_sharpe(viz_df)
+    # D. 绘制图表 (传入 market_data 用于画背景)
+    # ✅ 修改：所有绘图函数都增加 market_data 参数
+    viz.plot_equity_comparison(master_df, market_data=market_data)
+    viz.plot_drawdown_comparison(master_df, market_data=market_data)
+    viz.plot_rolling_sharpe(master_df) # 滚动夏普暂时只看自身稳定性，可选是否加背景
     
-    # D. 风险图表 (使用原始数值)
+    # E. 风险图表
     viz.plot_risk_comparison(raw_stats_df)
 
 if __name__ == "__main__":
