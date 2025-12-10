@@ -2,75 +2,107 @@ import pandas as pd
 import numpy as np
 import yfinance as yf
 import os
-from .config import Config
+from config import Config
+from regime import RollingPercentileRegime  # ✅ 新增：引入军师
 
-def load_market_data():
-    print("📊 [Data] Loading & Processing...")
+def load_market_data(force_download=False):
+    """
+    1. 加载 Opus 核心数据
+    2. 补充无风险利率
+    3. 调用 Regime Engine 计算市场状态 (Low/Normal/High)
+    4. 保存清洗后的数据供策略使用
+    """
+    print("📊 [Data] Pipeline Started...")
     
-    # 确保数据目录存在
+    # -----------------------------------------------------------
+    # 1. 路径检查与目录创建
+    # -----------------------------------------------------------
     os.makedirs(Config.DATA_FOLDER, exist_ok=True)
+    opus_path = os.path.join(Config.DATA_FOLDER, 'volatility_index.csv')
     
-    # 1. DVOL
-    dvol_path = os.path.join(Config.DATA_FOLDER, 'DERIBIT_DVOL_1D.csv')
-    if not os.path.exists(dvol_path):
-        raise FileNotFoundError(f"找不到 DVOL 数据: {dvol_path}")
-        
-    dvol = pd.read_csv(dvol_path)
-    dvol['date'] = pd.to_datetime(dvol['time'], unit='s').dt.normalize()
-    dvol['sigma'] = dvol['close'] / 100.0
-    dvol = dvol[['date', 'sigma']]
+    if not os.path.exists(opus_path):
+        raise FileNotFoundError(f"❌ 错误: 找不到 {opus_path}。请确保已将 Opus 项目的 volatility_index.csv 放入 data 文件夹。")
 
-    # 2. BTC & Rates
-    cache_btc = os.path.join(Config.DATA_FOLDER, 'BTC_USD_CACHE.csv')
+    # -----------------------------------------------------------
+    # 2. 加载核心数据 (Opus Volatility Index)
+    # -----------------------------------------------------------
+    df = pd.read_csv(opus_path)
+    df['date'] = pd.to_datetime(df['Date'])
+    
+    # 关键映射: 适配 BTC_Strat 现有变量名
+    df['price'] = df['ibit_spot']       # 策略交易的是 IBIT ETF
+    df['sigma'] = df['vol_index']       # 策略使用的隐含波动率 (IV)
+    df['btc_price'] = df['btc_close']   # 参考用的 BTC 原价
+    
+    # -----------------------------------------------------------
+    # 3. 补充无风险利率 (Yahoo Finance ^IRX)
+    # -----------------------------------------------------------
     cache_irx = os.path.join(Config.DATA_FOLDER, 'IRX_CACHE.csv')
     
-    if os.path.exists(cache_btc) and os.path.exists(cache_irx):
-        print("   Reading local cache...")
-        btc = pd.read_csv(cache_btc, index_col=0, parse_dates=True)
+    if os.path.exists(cache_irx) and not force_download:
+        print("   Loading rates from cache...")
         irx = pd.read_csv(cache_irx, index_col=0, parse_dates=True)
     else:
-        print("   Downloading from Yahoo...")
-        start = dvol['date'].min().strftime('%Y-%m-%d')
-        end = pd.Timestamp.now().strftime('%Y-%m-%d')
+        print("   Downloading rates from Yahoo...")
         try:
-            btc = yf.download("BTC-USD", start=start, end=end, progress=False)
-            if isinstance(btc.columns, pd.MultiIndex): btc = btc['Close']
-            else: btc = btc[['Close']]
-            btc.columns = ['price']
-            
-            irx = yf.download("^IRX", start=start, end=end, progress=False)
+            irx = yf.download("^IRX", start="2018-12-01", progress=False)
             if isinstance(irx.columns, pd.MultiIndex): irx = irx['Close']
             else: irx = irx[['Close']]
-            irx.columns = ['r']
-            
-            btc.to_csv(cache_btc)
             irx.to_csv(cache_irx)
-        except Exception as e:
-            print(f"Error downloading: {e}")
-            raise
+        except Exception:
+            print("⚠️ Rate download failed, utilizing flat 4.5% rate.")
+            dates = pd.date_range(start='2019-01-01', end=pd.Timestamp.now())
+            irx = pd.DataFrame(data={'Close': 4.5}, index=dates)
 
-    irx['r'] = irx['r'] / 100.0
-    irx = irx.asfreq('D').ffill()
+    irx = irx.reset_index()
+    irx.columns = ['date', 'rate_raw']
+    if irx['date'].dt.tz is not None: irx['date'] = irx['date'].dt.tz_localize(None)
     
-    # 时区处理
-    if btc.index.tz is not None: btc.index = btc.index.tz_localize(None)
-    if irx.index.tz is not None: irx.index = irx.index.tz_localize(None)
+    # 合并利率
+    df = pd.merge(df, irx, on='date', how='left')
+    df['r'] = df['rate_raw'].ffill().fillna(2.0) / 100.0
     
-    btc = btc.reset_index().rename(columns={'index':'date', 'Date':'date'})
-    irx = irx.reset_index().rename(columns={'index':'date', 'Date':'date'})
+    # -----------------------------------------------------------
+    # 4. 🔥 核心接通：调用 Regime Engine
+    # -----------------------------------------------------------
+    print("   Calculating Regimes (External Engine)...")
     
-    # Merge
-    df = pd.merge(btc, irx, on='date', how='inner')
-    df = pd.merge(df, dvol, on='date', how='inner')
-    df = df.sort_values('date').reset_index(drop=True)
+    # 实例化引擎：使用 365 天滚动窗口，带迟滞缓冲 (Hysteresis)
+    # 进场 High 门槛是 67%，出场是 60%，防止信号在临界点反复横跳
+    engine = RollingPercentileRegime(
+        window=365, 
+        min_periods=90,
+        high_enter=0.67, high_exit=0.60,
+        low_enter=0.33, low_exit=0.40
+    )
+    
+    # 注入灵魂：生成 regime_signal 列
+    df = engine.add_signals(df)
+    
+    # -----------------------------------------------------------
+    # 5. 清理与保存
+    # -----------------------------------------------------------
+    # 保留 debug 用的中间变量 (如 q_high_enter) 方便画图检查
+    cols_to_keep = [
+        'date', 'price', 'sigma', 'r', 'regime_signal', 
+        'btc_price', 'q_high_enter', 'q_low_enter'
+    ]
+    
+    # 确保列存在再筛选
+    available_cols = [c for c in cols_to_keep if c in df.columns]
+    final_df = df[available_cols].sort_values('date').reset_index(drop=True)
+    
+    save_path = os.path.join(Config.DATA_FOLDER, 'BTC_Strat_Data_Ready.csv')
+    final_df.to_csv(save_path, index=False)
+    
+    print(f"✅ Data Ready: {len(final_df)} rows. Saved to {save_path}")
+    print("   Regime Distribution:")
+    print(final_df['regime_signal'].value_counts())
+    
+    return final_df
 
-    # --- 计算 RV 和 Gap ---
-    df['log_ret'] = np.log(df['price'] / df['price'].shift(1))
-    df['rv_30'] = df['log_ret'].rolling(window=30).std() * np.sqrt(365)
-    df['vol_gap'] = df['sigma'] - df['rv_30']
-    
-    df.dropna(inplace=True)
-    df.reset_index(drop=True, inplace=True)
-    
-    print(f"✅ 数据处理完成: {len(df)} 行。Avg Gap: {df['vol_gap'].mean():.2%}")
-    return df
+if __name__ == "__main__":
+    # 测试代码
+    df = load_market_data()
+    print("\nSample Data (Tail):")
+    print(df[['date', 'sigma', 'regime_signal']].tail(10))
